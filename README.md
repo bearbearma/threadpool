@@ -76,6 +76,16 @@ mov count, eax
 
  [blog](https://murphypei.github.io/blog/2019/04/cpp-concurrent-3)
 
+###### 信号量 semaphore(C++20)
 
+没有资源技术限制的mutex互斥锁
 
-###### 信号量 semaphore(C++2)
+`std::counting_semaphore` 用于计数资源的访问，允许多个线程访问指定数量的资源
+
+`std::binary_semaphore` 是一个二进制信号量，类似于互斥锁。它只有两个状态：0，1
+
+###### 区别点
+
+mutex只能是哪个线程获取的，由哪个线程释放锁
+
+sem.acquire和release可以处在不同线程中调用
