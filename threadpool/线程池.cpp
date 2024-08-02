@@ -1,6 +1,7 @@
 #include <iostream>
 #include <thread>
 #include "threadpool.h"
+#include <any>
 
 class MyClass : public Task
 {
@@ -10,12 +11,13 @@ public:
 		: begin(be)
 		, end(en)
 	{}
-	void run() override
+	Any run() override
 	{
 		int sum = 0;
 		for (int i = begin; i <= end; ++i) {
 			sum += i;
 		}
+		return sum;
 	}
 
 private:
@@ -24,10 +26,11 @@ private:
 };
 
 int main() {
+	std::any a = 1;
 	ThreadPool pool;
 	pool.start(4);
-	for (int i = 0; i < 1024; ++i) {
-		pool.submitTask(std::make_shared<MyClass>(1, i));
-	}
+	Result res = pool.submitTask(std::make_shared<MyClass>());
+	int sum = res.get().cast_<int>(); // get 返回一个any类型
+
 	getchar();
 }
