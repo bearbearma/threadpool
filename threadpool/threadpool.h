@@ -12,6 +12,34 @@
 #include <functional>
 #include <condition_variable>
 
+//  ÷–¥semaphore
+class Semaphore
+{
+public:
+	Semaphore(int limit = 0) 
+		: resLimit_(limit)
+	{}
+	~Semaphore() = default;
+	void acquire()
+	{
+		std::unique_lock<std::mutex> lock(mtx_);
+		cond_.wait(lock, [&]() -> bool {
+			return resLimit_ > 0;
+		});
+		resLimit_--;
+	}
+	void release()
+	{
+		std::unique_lock<std::mutex> lock(mtx_);
+		resLimit_++;
+		cond_.notify_all();
+	}
+private:
+	size_t resLimit_;
+	std::mutex mtx_;
+	std::condition_variable cond_;
+};
+
 //  ÷–¥Any
 class Any
 {
