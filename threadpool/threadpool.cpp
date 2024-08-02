@@ -24,7 +24,7 @@ void ThreadPool::setTaskQueMaxThreshHold(size_t threshHold)
 	taskQueMaxThreshHold_ = threshHold;
 }
 
-void ThreadPool::submitTask(std::shared_ptr<Task> spTask)
+Result ThreadPool::submitTask(std::shared_ptr<Task> spTask)
 {
 	// 获取锁
 	std::unique_lock<std::mutex> lock(taskQueMtx_);
@@ -33,13 +33,14 @@ void ThreadPool::submitTask(std::shared_ptr<Task> spTask)
 		[&]() -> bool { return taskQue_.size() < taskQueMaxThreshHold_; }))
 	{
 		std::cerr << "task queue is full, submit task fail." << std::endl;
-		return;
+		return Result(spTask, false);
 	}
 	//如果有空余，把任务放入任务队列
 	taskQue_.emplace(spTask);
 	++taskSize_;
 	//新放入任务，任务队列不空，则 notEmpty_ 通知
 	notEmpty_.notify_all();
+	return Result(spTask);
 }
 
 void ThreadPool::start(size_t initThreadSize)
@@ -98,7 +99,7 @@ void ThreadPool::threadFunc()
 		// 当前线程执行改任务
 		if (spTask != nullptr)
 		{
-			spTask->run();
+			spTask->exec();
 		}
 	}
 }
@@ -120,3 +121,45 @@ void Thread::start()
 	std::thread t(func_);
 	t.detach(); // 设置成分离线程
 } 
+
+/**************Result方法实现**************/
+Result::Result(std::shared_ptr<Task> task, bool isValid)
+	: isValid_(isValid)
+	, task_(task)
+{
+	task_->setResult(this);
+}
+
+Any Result::get()
+{
+	if (!isValid_)
+	{
+		return "";
+	}
+	sem_.acquire();
+	return std::move(any_);
+}
+
+void Result::setValue(Any any)
+{
+	this->any_ = std::move(any);
+	sem_.release();
+}
+
+/**************Task方法实现**************/
+void Task::exec()
+{
+	if (result_ != nullptr)
+	{
+		result_->setValue(run());
+	}
+}
+
+void Task::setResult(Result* res)
+{
+	result_ = res;
+}
+
+Task::Task()
+	: result_(nullptr)
+{}

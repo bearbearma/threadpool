@@ -12,6 +12,7 @@
 #include <functional>
 #include <condition_variable>
 
+class Task;
 // 手写semaphore
 class Semaphore
 {
@@ -48,6 +49,8 @@ public:
 	~Any() = default;
 	Any(const Any&) = delete;
 	Any& operator=(const Any&) = delete;
+	Any(Any&&) = default;
+	Any& operator=(Any&&) = default;
 
 	template <typename T>
 	Any(T data) : base_(std::make_unique<Derive<T>>(data))
@@ -86,12 +89,35 @@ private:
 	std::unique_ptr<Base> base_;
 };
 
+// Result
+class Result
+{
+public:
+	Result(std::shared_ptr<Task> task, bool isValid = true);
+	~Result() = default;
+	void setValue(Any any);
+	Any get();
+
+private:
+	Any any_;
+	Semaphore sem_;
+	std::shared_ptr<Task> task_;
+	std::atomic_bool isValid_;
+};
+
 // 任务抽象基类
 class Task
 {
 public:
+	Task();
+	~Task() = default;
+
 	// 用户可以自定义任意任务类型，从Task继承，重写run方法，实现自定义任务处理
 	virtual Any run() = 0;
+	void exec();
+	void setResult(Result*);
+private:
+	Result* result_;
 };
 
 // 线程池支持的两种模式
@@ -135,7 +161,7 @@ public:
 	void setTaskQueMaxThreshHold(size_t threshHold);
 	
 	//给线程池提交任务
-	void submitTask(std::shared_ptr<Task> spTask);
+	Result submitTask(std::shared_ptr<Task> spTask);
 	
 	// 开启线程池
 	void start(size_t initThreadSize = 6);
