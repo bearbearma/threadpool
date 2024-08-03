@@ -1,7 +1,9 @@
 #include "threadpool.h"
 
-constexpr size_t TASK_MAX_THRESHHOLD = 4;
-constexpr size_t Thread_MAX_THRESHHOLD = 10;
+constexpr size_t TASK_MAX_THRESHHOLD = INT32_MAX;
+constexpr size_t Thread_MAX_THRESHHOLD = 30;
+constexpr size_t Thread_MAX_IDLE_TIME = 2; // 单位s
+
 
 /**************线程池方法实现**************/
 ThreadPool::ThreadPool()
@@ -11,12 +13,16 @@ ThreadPool::ThreadPool()
 	, poolMode_(PoolMode::MODE_FIXED)
 	, isPoolRunning(false)
 	, idleThreadSize_(0)
-	, threadMaxThreshHold_(500)
+	, threadMaxThreshHold_(Thread_MAX_THRESHHOLD)
 	, curThreadSize_(0)
 {}
 
 ThreadPool::~ThreadPool()
 {
+	isPoolRunning = false; 
+	notEmpty_.notify_all();
+	std::unique_lock<std::mutex> lock(taskQueMtx_);
+	exitCond_.wait(lock, [&]() -> bool { return threads_.size() == 0;});
 }
 
 void ThreadPool::setMode(PoolMode mode)
@@ -47,10 +53,18 @@ Result ThreadPool::submitTask(std::shared_ptr<Task> spTask)
 	++taskSize_;
 	//新放入任务，任务队列不空，则 notEmpty_ 通知
 	notEmpty_.notify_all();
-
 	if (poolMode_ == PoolMode::MODE_CACHED
 		&& taskSize_ > idleThreadSize_
-		)
+		&& curThreadSize_ < threadMaxThreshHold_)
+	{
+		auto ptr = std::make_unique<Thread>(std::bind(&ThreadPool::threadFunc, this, std::placeholders::_1));
+		size_t threadId = ptr->getId();
+		std::cout << "creat new thread!" << std::endl;
+		threads_.emplace(threadId, std::move(ptr));
+		threads_[threadId]->start();
+		curThreadSize_++;
+		idleThreadSize_++;
+	}
 
 	return Result(spTask);
 }
@@ -66,8 +80,9 @@ void ThreadPool::start(size_t initThreadSize)
 	// 创建线程对象
 	for (size_t i = 0; i < initThreadSize_; ++i) 
 	{
-		auto ptr = std::make_unique<Thread>(std::bind(&ThreadPool::threadFunc, this));
-		threads_.emplace_back(std::move(ptr));
+		auto ptr = std::make_unique<Thread>(std::bind(&ThreadPool::threadFunc, this, std::placeholders::_1));
+		size_t threadId = ptr->getId();
+		threads_.emplace(threadId, std::move(ptr));
 	}
 
 	// 启动所有线程
@@ -87,27 +102,55 @@ void ThreadPool::setThreadMaxThreshHold(int threadSize)
 	}
 }
 
-void ThreadPool::threadFunc()
+void ThreadPool::threadFunc(size_t threadId)
 {
-	while (true)
+	auto lastTime = std::chrono::high_resolution_clock().now();
+
+	while (isPoolRunning)
 	{
 		std::shared_ptr<Task> spTask;
-
 		{   // 获取锁
 			std::unique_lock<std::mutex> lock(taskQueMtx_);
 
-			std::cout << "tid: " << std::this_thread::get_id()
-				<< "尝试获取任务..." << std::endl;
+			std::cout << "尝试获取任务" << std::endl;
 
-			// 等待notEmpty
-			notEmpty_.wait(lock, [&]() -> bool {
-				return taskQue_.size() > 0;
-			});
+			while (taskQue_.size() == 0) {
+				// cached模式下，有可能会创造很多线程，空闲时间超过60s的多余空闲线程应该回收掉
+				// 当前时间 - 上一次线程执行时间 > 60s
+				if (poolMode_ == PoolMode::MODE_CACHED) {
+					if (std::cv_status::timeout == notEmpty_.wait_for(lock, std::chrono::seconds(1)))
+					{
+						auto now = std::chrono::high_resolution_clock().now();
+						auto dur = std::chrono::duration_cast<std::chrono::seconds> (now - lastTime);
+						if (dur.count() >= Thread_MAX_IDLE_TIME && curThreadSize_ > initThreadSize_)
+						{
+							threads_.erase(threadId);
+							curThreadSize_--;
+							idleThreadSize_--;
+							return;
+						}
+					}
+				}
+				else
+				{
+					// 等待notEmpty
+					notEmpty_.wait(lock);
+				}
+
+				// 回收资源
+				if (!isPoolRunning)
+				{
+					threads_.erase(threadId);
+					std::cout << "threadid: " << std::this_thread::get_id() << " exit!" << std::endl;
+					exitCond_.notify_one();
+					return;
+				}
+			}
+
+
 			idleThreadSize_--;
 
-			std::cout << "tid: " << std::this_thread::get_id()
-				<< "获取任务成功..." << std::endl;
-
+			std::cout << "获取成功" << std::endl;
 			// 非空，从任务队列中取一个任务
 			spTask = std::move(taskQue_.front());
 			taskQue_.pop();
@@ -126,8 +169,14 @@ void ThreadPool::threadFunc()
 		{
 			spTask->exec();
 		}
+
 		idleThreadSize_++;
+		lastTime = std::chrono::high_resolution_clock().now();
 	}
+
+	threads_.erase(threadId);
+	std::cout << "threadid: " << std::this_thread::get_id() << " exit!" << std::endl;
+	exitCond_.notify_one();
 }
 
 bool ThreadPool::checkRunningState() const
@@ -137,8 +186,11 @@ bool ThreadPool::checkRunningState() const
 
 /**************线程方法实现**************/
 
+size_t Thread::generateId = 0;
+
 Thread::Thread(ThreadFunc func)
 	: func_(func)
+	, threadId_(generateId++)
 {}
 
 Thread::~Thread()
@@ -149,9 +201,14 @@ Thread::~Thread()
 void Thread::start()
 {
 	// 创建一个线程来执行一个线程函数
-	std::thread t(func_);
+	std::thread t(func_, threadId_);
 	t.detach(); // 设置成分离线程
-} 
+}
+size_t Thread::getId() const
+{
+	return threadId_;
+}
+
 
 /**************Result方法实现**************/
 Result::Result(std::shared_ptr<Task> task, bool isValid)

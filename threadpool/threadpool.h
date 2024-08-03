@@ -9,7 +9,9 @@
 #include <mutex>
 #include <thread>
 #include <chrono>
+#include <semaphore>
 #include <functional>
+#include <unordered_map>
 #include <condition_variable>
 
 class Task;
@@ -132,7 +134,7 @@ class Thread
 {
 public:
 	// 线程函数对象类型
-	using ThreadFunc = std::function<void()>;
+	using ThreadFunc = std::function<void(size_t)>;
 
 	// 线程构造
 	Thread(ThreadFunc func);
@@ -140,9 +142,13 @@ public:
 	~Thread();
 	// 启动线程
 	void start();
+	// 获取线程id
+	size_t getId() const;
 
 private:
 	ThreadFunc func_;
+	static size_t generateId;
+	size_t threadId_;
 };
 
 //线程池类型
@@ -175,15 +181,17 @@ public:
 
 private:
 	// 定义线程函数
-	void threadFunc();
+	void threadFunc(size_t);
 
 	// 检查运行状态
 	bool checkRunningState() const;
 
 private:
-	std::vector<std::unique_ptr<Thread>> threads_; // 线程列表
+	std::unordered_map<size_t, std::unique_ptr<Thread>> threads_; // 线程列表
 	size_t initThreadSize_; //初始线程数量
 	size_t threadMaxThreshHold_; // 线程数量上限
+	std::atomic_uint64_t curThreadSize_; // 当前线程数量
+	std::atomic_uint idleThreadSize_; // 空闲线程数量
 
 	std::queue<std::shared_ptr<Task>> taskQue_; // 任务队列
 	std::atomic_uint taskSize_; // 任务数量
@@ -192,11 +200,10 @@ private:
 	std::mutex taskQueMtx_; // 保证任务队列的线程安全
 	std::condition_variable notFull_; // 表示任务队列不满
 	std::condition_variable notEmpty_; // 表示任务队列不空
+	std::condition_variable exitCond_; // 等待线程资源全部回收
 
 	PoolMode poolMode_; // 设置当前线程池模式
-
 	std::atomic_bool isPoolRunning; // 当前线程池启动状态
-	std::atomic_uint idleThreadSize_; // 空闲线程数量
 };
 
 #endif
