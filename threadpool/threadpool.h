@@ -166,6 +166,9 @@ public:
 	// 开启线程池
 	void start(size_t initThreadSize = 6);
 
+	// 设置线程池cached模式下线程阈值
+	void setThreadMaxThreshHold(int threadSize);
+
 	//禁止赋值和拷贝构造
 	ThreadPool(const ThreadPool&) = delete;
 	ThreadPool& operator = (const ThreadPool&) = delete;
@@ -174,10 +177,14 @@ private:
 	// 定义线程函数
 	void threadFunc();
 
+	// 检查运行状态
+	bool checkRunningState() const;
+
 private:
 	std::vector<std::unique_ptr<Thread>> threads_; // 线程列表
 	size_t initThreadSize_; //初始线程数量
-	
+	size_t threadMaxThreshHold_; // 线程数量上限
+
 	std::queue<std::shared_ptr<Task>> taskQue_; // 任务队列
 	std::atomic_uint taskSize_; // 任务数量
 	size_t taskQueMaxThreshHold_; // 任务队列数量上限阈值
@@ -187,6 +194,9 @@ private:
 	std::condition_variable notEmpty_; // 表示任务队列不空
 
 	PoolMode poolMode_; // 设置当前线程池模式
+
+	std::atomic_bool isPoolRunning; // 当前线程池启动状态
+	std::atomic_uint idleThreadSize_; // 空闲线程数量
 };
 
 #endif

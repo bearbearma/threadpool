@@ -1,6 +1,7 @@
 #include "threadpool.h"
 
 constexpr size_t TASK_MAX_THRESHHOLD = 4;
+constexpr size_t Thread_MAX_THRESHHOLD = 10;
 
 /**************线程池方法实现**************/
 ThreadPool::ThreadPool()
@@ -8,6 +9,10 @@ ThreadPool::ThreadPool()
 	, taskSize_(0)
 	, taskQueMaxThreshHold_(TASK_MAX_THRESHHOLD)
 	, poolMode_(PoolMode::MODE_FIXED)
+	, isPoolRunning(false)
+	, idleThreadSize_(0)
+	, threadMaxThreshHold_(500)
+	, curThreadSize_(0)
 {}
 
 ThreadPool::~ThreadPool()
@@ -16,11 +21,13 @@ ThreadPool::~ThreadPool()
 
 void ThreadPool::setMode(PoolMode mode)
 {
+	if (checkRunningState()) return;
 	poolMode_ = mode;
 }
 
 void ThreadPool::setTaskQueMaxThreshHold(size_t threshHold)
 {
+	if (checkRunningState()) return;
 	taskQueMaxThreshHold_ = threshHold;
 }
 
@@ -40,13 +47,21 @@ Result ThreadPool::submitTask(std::shared_ptr<Task> spTask)
 	++taskSize_;
 	//新放入任务，任务队列不空，则 notEmpty_ 通知
 	notEmpty_.notify_all();
+
+	if (poolMode_ == PoolMode::MODE_CACHED
+		&& taskSize_ > idleThreadSize_
+		)
+
 	return Result(spTask);
 }
 
 void ThreadPool::start(size_t initThreadSize)
 {
+	isPoolRunning = true;
+
 	// 初始化线程个数
 	initThreadSize_ = initThreadSize;
+	curThreadSize_ = initThreadSize;
 
 	// 创建线程对象
 	for (size_t i = 0; i < initThreadSize_; ++i) 
@@ -59,6 +74,16 @@ void ThreadPool::start(size_t initThreadSize)
 	for (size_t i = 0; i < initThreadSize_; ++i) 
 	{
 		threads_[i]->start(); // 执行一个线程函数
+		idleThreadSize_++;
+	}
+}
+
+void ThreadPool::setThreadMaxThreshHold(int threadSize)
+{
+	if (checkRunningState()) return;
+	if (poolMode_ == PoolMode::MODE_CACHED)
+	{
+		threadMaxThreshHold_ = threadSize;
 	}
 }
 
@@ -78,10 +103,10 @@ void ThreadPool::threadFunc()
 			notEmpty_.wait(lock, [&]() -> bool {
 				return taskQue_.size() > 0;
 			});
+			idleThreadSize_--;
 
 			std::cout << "tid: " << std::this_thread::get_id()
 				<< "获取任务成功..." << std::endl;
-
 
 			// 非空，从任务队列中取一个任务
 			spTask = std::move(taskQue_.front());
@@ -101,7 +126,13 @@ void ThreadPool::threadFunc()
 		{
 			spTask->exec();
 		}
+		idleThreadSize_++;
 	}
+}
+
+bool ThreadPool::checkRunningState() const
+{
+	return isPoolRunning;
 }
 
 /**************线程方法实现**************/
