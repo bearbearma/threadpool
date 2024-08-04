@@ -107,7 +107,7 @@ void ThreadPool::threadFunc(size_t threadId)
 {
 	auto lastTime = std::chrono::high_resolution_clock().now();
 
-	while (isPoolRunning)
+	while (true)
 	{
 		std::shared_ptr<Task> spTask;
 		{   // 获取锁
@@ -115,10 +115,16 @@ void ThreadPool::threadFunc(size_t threadId)
 
 			std::cout << "尝试获取任务" << std::endl;
 
-			while (isPoolRunning && taskQue_.size() == 0) 
+			while (taskQue_.size() == 0) 
 			{
-				// cached模式下，有可能会创造很多线程，空闲时间超过60s的多余空闲线程应该回收掉
-				// 当前时间 - 上一次线程执行时间 > 60s
+				if (!isPoolRunning)
+				{
+					threads_.erase(threadId);
+					std::cout << "threadid: " << std::this_thread::get_id() << " exit!" << std::endl;
+					exitCond_.notify_one();
+					return;
+				}
+
 				if (poolMode_ == PoolMode::MODE_CACHED) 
 				{
 					if (std::cv_status::timeout == notEmpty_.wait_for(lock, std::chrono::seconds(1)))
@@ -139,14 +145,6 @@ void ThreadPool::threadFunc(size_t threadId)
 					// 等待notEmpty
 					notEmpty_.wait(lock);
 				}
-			}
-			// 回收资源
-			if (!isPoolRunning)
-			{
-				threads_.erase(threadId);
-				std::cout << "threadid: " << std::this_thread::get_id() << " exit!" << std::endl;
-				exitCond_.notify_one();
-				return;
 			}
 
 			idleThreadSize_--;
@@ -171,13 +169,11 @@ void ThreadPool::threadFunc(size_t threadId)
 			spTask->exec();
 		}
 
+		std::cout << "执行完成" << std::endl;
+
 		idleThreadSize_++;
 		lastTime = std::chrono::high_resolution_clock().now();
 	}
-
-	threads_.erase(threadId);
-	std::cout << "threadid: " << std::this_thread::get_id() << " exit!" << std::endl;
-	exitCond_.notify_one();
 }
 
 bool ThreadPool::checkRunningState() const

@@ -17,7 +17,7 @@ public:
 		for (int i = begin; i <= end; ++i) {
 			sum += i;
 		}
-		std::this_thread::sleep_for(std::chrono::seconds(1));
+		std::this_thread::sleep_for(std::chrono::seconds(2));
 		std::cout << "run over" << std::endl;
 		return sum;
 	}
@@ -30,7 +30,7 @@ private:
 	 {
 		 ThreadPool pool;
 //		 pool.setMode(PoolMode::MODE_CACHED);
-		 pool.start(4);
+		 pool.start(2);
 		 Result res1 = pool.submitTask(std::make_shared<MyClass>(1, 100000));
 		 pool.submitTask(std::make_shared<MyClass>(2000000001, 300000000)); 
 		 pool.submitTask(std::make_shared<MyClass>(2000000001, 300000000));
@@ -41,7 +41,7 @@ private:
 		 pool.submitTask(std::make_shared<MyClass>(2000000001, 300000000));
 		 pool.submitTask(std::make_shared<MyClass>(2000000001, 300000000));
 		 int sum = res1.get().cast_<int>();
-		 std::cout << sum << std::endl;
+//		 std::cout << sum << std::endl;
 	 }
 	 std::cout << "main over" << std::endl;
 #if 0
