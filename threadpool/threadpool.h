@@ -170,7 +170,7 @@ public:
 	Result submitTask(std::shared_ptr<Task> spTask);
 	
 	// 开启线程池
-	void start(size_t initThreadSize = 6);
+	void start(size_t initThreadSize = std::thread::hardware_concurrency());
 
 	// 设置线程池cached模式下线程阈值
 	void setThreadMaxThreshHold(int threadSize);
