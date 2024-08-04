@@ -20,8 +20,9 @@ ThreadPool::ThreadPool()
 ThreadPool::~ThreadPool()
 {
 	isPoolRunning = false; 
-	notEmpty_.notify_all();
+	std::cout << "Pool End" << std::endl;
 	std::unique_lock<std::mutex> lock(taskQueMtx_);
+	notEmpty_.notify_all();
 	exitCond_.wait(lock, [&]() -> bool { return threads_.size() == 0;});
 }
 
@@ -114,10 +115,12 @@ void ThreadPool::threadFunc(size_t threadId)
 
 			std::cout << "尝试获取任务" << std::endl;
 
-			while (taskQue_.size() == 0) {
+			while (isPoolRunning && taskQue_.size() == 0) 
+			{
 				// cached模式下，有可能会创造很多线程，空闲时间超过60s的多余空闲线程应该回收掉
 				// 当前时间 - 上一次线程执行时间 > 60s
-				if (poolMode_ == PoolMode::MODE_CACHED) {
+				if (poolMode_ == PoolMode::MODE_CACHED) 
+				{
 					if (std::cv_status::timeout == notEmpty_.wait_for(lock, std::chrono::seconds(1)))
 					{
 						auto now = std::chrono::high_resolution_clock().now();
@@ -136,17 +139,15 @@ void ThreadPool::threadFunc(size_t threadId)
 					// 等待notEmpty
 					notEmpty_.wait(lock);
 				}
-
-				// 回收资源
-				if (!isPoolRunning)
-				{
-					threads_.erase(threadId);
-					std::cout << "threadid: " << std::this_thread::get_id() << " exit!" << std::endl;
-					exitCond_.notify_one();
-					return;
-				}
 			}
-
+			// 回收资源
+			if (!isPoolRunning)
+			{
+				threads_.erase(threadId);
+				std::cout << "threadid: " << std::this_thread::get_id() << " exit!" << std::endl;
+				exitCond_.notify_one();
+				return;
+			}
 
 			idleThreadSize_--;
 
